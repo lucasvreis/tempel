@@ -237,7 +237,15 @@ BEG and END are the boundaries of the modification."
        (after
         (let ((st (overlay-get ov 'tempel--field)))
           (unless undo-in-progress
-            (move-overlay ov (overlay-start ov) (max end (overlay-end ov))))
+            (move-overlay ov (min beg (overlay-start ov)) (max end (overlay-end ov)))
+            ;; make sure overlays before and after don't overlap current field
+            (setq before-current nil)
+            (dolist (ov_ (cdar st))
+              (if (eq ov ov_)
+                  (setq before-current t)
+                (if before-current
+                    (move-overlay ov_ (min beg (overlay-start ov_)) (min beg (overlay-end ov_)))
+                  (move-overlay ov_ (max end (overlay-start ov_)) (max end (overlay-end ov_)))))))
           (when-let ((name (overlay-get ov 'tempel--name)))
             (setf (alist-get name (cdr st))
                   (buffer-substring-no-properties
@@ -295,7 +303,7 @@ If OV is alive, move it."
 NAME is the optional field name.
 INIT is the optional initial input.
 Return the added field."
-  (let ((ov (make-overlay (point) (point)))
+  (let ((ov (make-overlay (point) (point) nil t))
         (hooks (list #'tempel--field-modified)))
     (push ov (car st))
     (when name
