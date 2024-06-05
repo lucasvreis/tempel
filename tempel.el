@@ -220,6 +220,20 @@ REGION are the current region bounds."
           (tempel--inhibit-hooks t))
       (tempel--disable (overlay-get ov 'tempel--range)))))
 
+(defun tempel--ensure-ov-invariant (st ov)
+  "Ensure the overlay order is maintained in the buffer.
+ST is the tempel state.
+OV is the overlay that has been just modified."
+  (let ((beg (overlay-start ov))
+        (end (overlay-end ov))
+        before-current)
+    (dolist (ov_ (cdar st))
+      (if (eq ov ov_)
+          (setq before-current t)
+        (if before-current
+            (move-overlay ov_ (min beg (overlay-start ov_)) (min beg (overlay-end ov_)))
+          (move-overlay ov_ (max end (overlay-start ov_)) (max end (overlay-end ov_))))))))
+
 (defun tempel--field-modified (ov after beg end &optional _len)
   "Update field overlay OV.
 AFTER is non-nil after the modification.
@@ -238,14 +252,7 @@ BEG and END are the boundaries of the modification."
         (let ((st (overlay-get ov 'tempel--field)))
           (unless undo-in-progress
             (move-overlay ov (min beg (overlay-start ov)) (max end (overlay-end ov)))
-            ;; make sure overlays before and after don't overlap current field
-            (setq before-current nil)
-            (dolist (ov_ (cdar st))
-              (if (eq ov ov_)
-                  (setq before-current t)
-                (if before-current
-                    (move-overlay ov_ (min beg (overlay-start ov_)) (min beg (overlay-end ov_)))
-                  (move-overlay ov_ (max end (overlay-start ov_)) (max end (overlay-end ov_)))))))
+            (tempel--ensure-ov-invariant st ov))
           (when-let ((name (overlay-get ov 'tempel--name)))
             (setf (alist-get name (cdr st))
                   (buffer-substring-no-properties
@@ -264,12 +271,13 @@ BEG and END are the boundaries of the modification."
           (let (x)
             (setq x (or (and (setq x (overlay-get ov 'tempel--form)) (eval x (cdr st)))
                         (and (setq x (overlay-get ov 'tempel--name)) (alist-get x (cdr st)))))
-            (when x (tempel--synchronize-replace (overlay-start ov) (overlay-end ov) ov x)))))
+            (when x (tempel--synchronize-replace (overlay-start ov) (overlay-end ov) ov x st)))))
       ;; Move range overlay
-      (move-overlay range (overlay-start range)
-                    (max (overlay-end range) (overlay-end ov))))))
+      (when range
+        (move-overlay range (overlay-start range)
+                      (max (overlay-end range) (overlay-end ov)))))))
 
-(defun tempel--synchronize-replace (beg end ov str)
+(defun tempel--synchronize-replace (beg end ov str st)
   "Replace region between BEG and END with STR.
 If OV is alive, move it."
   (let ((old (buffer-substring-no-properties beg end)))
@@ -277,7 +285,7 @@ If OV is alive, move it."
     (unless (equal str old)
       (unless (eq buffer-undo-list t)
         (push (list 'apply #'tempel--synchronize-replace
-                    beg (+ beg (length str)) ov old)
+                    beg (+ beg (length str)) ov old st)
               buffer-undo-list))
       (let ((buffer-undo-list t))
         (save-excursion
@@ -286,6 +294,7 @@ If OV is alive, move it."
           (insert str)
           (when ov
             (move-overlay ov beg (point))
+            (tempel--ensure-ov-invariant st ov)
             (tempel--update-mark ov)))))))
 
 (defun tempel--update-mark (ov)
@@ -323,7 +332,8 @@ Return the added field."
       (overlay-put ov 'face 'tempel-default)
       (overlay-put ov 'tempel--default
                    (if (string-suffix-p ": " init) 'end 'start)))
-    (tempel--synchronize-fields st ov)
+    (tempel--synchronize-fields (cons (cons nil (car st)) (cdr st)) ov)
+    (goto-char (overlay-end ov))
     ov))
 
 (defun tempel--form (st form)
