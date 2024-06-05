@@ -227,15 +227,10 @@ REGION are the current region bounds."
   "Ensure the overlay order is maintained in the buffer.
 ST is the tempel state.
 OV is the overlay that has been just modified."
-  (let ((beg (overlay-start ov))
-        (end (overlay-end ov))
-        before-current)
-    (dolist (ov_ (cdar st))
-      (if (eq ov ov_)
-          (setq before-current t)
-        (if before-current
-            (move-overlay ov_ (min beg (overlay-start ov_)) (min beg (overlay-end ov_)))
-          (move-overlay ov_ (max end (overlay-start ov_)) (max end (overlay-end ov_))))))))
+  (let ((end (overlay-end ov)))
+    (cl-dolist (ov_ (cdar st))
+      (if (eq ov ov_) (cl-return)
+        (move-overlay ov_ (max end (overlay-start ov_)) (max end (overlay-end ov_)))))))
 
 (defun tempel--field-modified (ov after beg end &optional _len)
   "Update field overlay OV.
