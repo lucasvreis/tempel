@@ -133,6 +133,9 @@ If a file is modified, added or removed, reload the templates."
 (defvar tempel--inhibit-hooks nil
   "Inhibit tempel modification change hooks from running.")
 
+(defvar tempel--pending-field-modified nil
+  "Internal variable to supress double calls of `tempel--field-modified'.")
+
 (defvar-local tempel--active nil
   "List of active templates.
 Each template state is a pair, where the car is a list of overlays and
@@ -244,11 +247,16 @@ BEG and END are the boundaries of the modification."
       (cond
        ;; Erase default text before modification when typing over it at the
        ;; beginning or end. Deleting or editing inside preserves the text.
-       ((and (not after) (overlay-get ov 'tempel--default) (eq beg end)
+       ((and (not after) (not tempel--pending-field-modified)
+             (overlay-get ov 'tempel--default) (eq beg end)
              (or (= beg (overlay-start ov)) (= end (overlay-end ov))))
-        (delete-region (overlay-start ov) (overlay-end ov)))
+        (delete-region (overlay-start ov) (overlay-end ov))
+        (tempel--update-mark ov)
+        (setq tempel--pending-field-modified t))
+       ((not after) (setq tempel--pending-field-modified t))
        ;; Update field after modification
-       (after
+       ((and after tempel--pending-field-modified)
+        (setq tempel--pending-field-modified nil)
         (let ((st (overlay-get ov 'tempel--field)))
           (unless undo-in-progress
             (move-overlay ov (min beg (overlay-start ov)) (max end (overlay-end ov)))
@@ -258,8 +266,8 @@ BEG and END are the boundaries of the modification."
                   (buffer-substring-no-properties
                    (overlay-start ov) (overlay-end ov))))
           (unless undo-in-progress
-            (tempel--synchronize-fields st ov)))))
-      (tempel--update-mark ov))))
+            (tempel--synchronize-fields st ov)))
+        (tempel--update-mark ov))))))
 
 (defun tempel--synchronize-fields (st current)
   "Synchronize fields of ST, except CURRENT overlay."
